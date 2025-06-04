@@ -1,0 +1,202 @@
+
+import os.path, random, re, time
+
+from bs4 import BeautifulSoup
+from selenium import webdriver
+
+
+# general constant
+PATN = r"[\u4E00-\u9FFF]" # PATN: pattern, didn't use `PATRN` because it looks like `print` in a glance
+# cite: https://en.wikipedia.org/wiki/CJK_Unified_Ideographs#CJK_Unified_Ideographs_blocks
+HOR_RULE = "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+
+# directory related constant
+SAVE_FNAME = "store_content.txt"
+CRAWL_URL = "crawl_url.txt" # file contain only url to the contents of the novel
+with open(CRAWL_URL) as file:
+    URL = file.read()
+
+
+#* Glossary: 
+# title: Name of the novel
+# contents: List of chapter titles in the novel
+# chapter: Title and text of chapter
+# heading: Title of chapter
+# body: Text of chapter
+
+#* Note: 
+# The contents page and all chapters are in their dedicated url.
+
+def setup_webdriver() -> webdriver.Chrome:
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_experimental_option("detach", True)
+    return webdriver.Chrome(options=chrome_options)
+
+def character_count(body:str) -> int:
+    """
+    Return the number of chinese characters in the text.
+
+    Parameters
+    ----------
+    text: (str)
+        The text to count characters.
+
+    Returns
+    -------
+    int
+        Number of characters in the text.
+    """
+    return len(re.findall(PATN, body))
+
+def get_last_heading() -> str|None:
+    """
+    Return heading of the last chapter in the file, 
+    the file is defined by ``FNAME``.
+
+    Returns
+    -------
+    str|None
+        The heading of last chapter.
+    """
+    with open(SAVE_FNAME, mode="r", encoding='UTF-8') as file:
+        content = file.read()
+        if content == "":
+            return None
+        
+        # extract heading from file content
+        last_heading = content.rsplit(HOR_RULE)[-2]
+        
+        return last_heading.strip()
+
+def get_contents(url:str, driver:webdriver.Chrome, last_heading:str|None=None) -> list[str]:
+    """
+    Crawl all chapter headings from the contents page, 
+    returns a list of <a> tags contain heading.
+
+    Parameters
+    ----------
+    url: (str)
+        Link to the contents page.
+    driver: (webdriver.Chrome)
+        The chrome driver.
+    last_heading: (str | None, optional, by default None)
+        Last heading in the store file, if provided, return only the following headings.
+        (skip all previous headings including this one)
+
+    Returns
+    -------
+    list[str]
+        A list of <a> tags contain chapter heading and url.
+    """
+    driver.get(url)
+    soup = BeautifulSoup(driver.page_source,'html.parser')
+
+    chapter_list = soup.select_one(".chapter-list")
+    target = chapter_list.find("a", string=last_heading) # idea to dismiss type check: if chapter_list is not None else "insert idea"
+    parent = target.find_parent("li")
+    chapter_rest = parent.find_next_siblings()
+        
+    return [tag.find("a") for tag in chapter_rest if tag.find("a") is not None]
+
+def store_chapter(chapter:str) -> None:
+    """
+    Store (append) chapters to save file.
+
+    Parameters
+    ----------
+    content: (str)
+        The chapters to save.
+    """
+    with open(SAVE_FNAME, mode="a", encoding='UTF-8') as file:
+        file.write(chapter)
+
+def crawl_novel_body(contents:dict[str, str], driver:webdriver.Chrome) -> list[tuple[str, str]]:
+    """
+    Use link in `contents` to crawl the body from website.
+
+    Parameters
+    ----------
+    contents: (dict[str, str])
+        ``{chapter_link, chapter_title}``
+        The link and title of all chapters to crawl.
+    driver: (webdriver.Chrome)
+        The chrome driver.
+    
+    Returns
+    -------
+    list[tuple[str, str]]
+        ``[(chapter_title, chapter_link)]``
+        The title and link of all chapters where body has fewer characters.
+    """
+    flags:list[tuple[str, str]] = []
+    
+    for link, heading in contents.items():
+        # add time interval between crawl to avoid bot detection
+        time.sleep(1.1 + random.random() * 1.4)
+        
+        # crawl
+        driver.get(link)
+        soup = BeautifulSoup(driver.page_source,'html.parser')
+        body = soup.select(".content")[0].text
+        chars = character_count(body)
+        
+        # if the number of character in content is < 200, flag the page
+        if chars < 200:
+            flags.append((heading, link))
+        else:
+            content:str = ""
+            content += HOR_RULE + "\n"
+            content += heading + "\n"
+            content += HOR_RULE + "\n\n"
+            content += body + "\n\n\n"
+        
+        # show current progress
+        print(f"\033[KWriting: {heading}", end="\r", flush=True)
+        
+        store_chapter(content)
+    return flags
+
+def operation(url:str):
+    """
+    The whole operation to get chapters from website to local file.
+
+    Parameters
+    ----------
+    url: (str)
+        Link to the novel website.
+    """
+    # setup driver
+    driver = setup_webdriver()
+    
+    # setup file to store text
+    if not os.path.isfile(SAVE_FNAME):
+        with open(SAVE_FNAME, mode="w") as file:
+            file.write("")
+    
+    # get last heading in file
+    last_heading = get_last_heading()
+    print(f"last heading exist: {last_heading}")
+    
+    # get all the <a> tag contain headings (title and link)
+    element = get_contents(url, driver, last_heading)
+    contents:dict[str, str] = {
+        ("https:" + tag.get("href")): tag.text
+        for tag in element
+    }
+    
+    # crawl body on website
+    flags = crawl_novel_body(contents, driver)
+    
+    # close webdriver
+    driver.close()
+    
+    if flags == []:
+        print("There's no chapter with character count less than 200 characters.")
+    else:
+        print(f"There's {len(flags)} chapter with character count less than 200 characters")
+        for flag in flags:
+            print(*flag)
+
+if __name__ == "__main__":
+    operation(URL)
+    print("ended.")
