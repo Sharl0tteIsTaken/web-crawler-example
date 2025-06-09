@@ -1,7 +1,9 @@
 
 import os.path, random, re, time
+from collections.abc import Callable
+from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from selenium import webdriver
 
 
@@ -11,8 +13,9 @@ PATN = r"[\u4E00-\u9FFF]" # PATN: pattern, didn't use `PATRN` because it looks l
 HOR_RULE = "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
 
 # directory related constant
-SAVE_FNAME = "store_content.txt"
-CRAWL_URL = "crawl_url.txt" # file contain only url to the contents of the novel
+DIR = "novel_crawler/"
+SAVE_FNAME = DIR + "store_content.txt"
+CRAWL_URL = DIR + "crawl_url.txt" # file contain only url to the contents of the novel
 with open(CRAWL_URL) as file:
     URL = file.read()
 
@@ -27,9 +30,20 @@ with open(CRAWL_URL) as file:
 #* Note: 
 # The contents page and all chapters are in their dedicated url.
 
+def alter_find(func:Callable[..., Any], *args:Any, **kwargs:Any) -> Any:
+    result:Tag|None = func(*args, **kwargs)
+    print(f"calling: {func.__name__}, with args: {args}, {kwargs}")
+    if result is None:
+        raise AttributeError(
+            f"The result of {func.__name__} is None, find target is {args[0] if type(args) == tuple else args}."
+            f"Other arguments are: {', '.join(args[1:])}"
+            f"Other keyword arguments are: {kwargs}"
+            )
+    return result
+
 def setup_webdriver() -> webdriver.Chrome:
     chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_experimental_option("detach", True)
+    chrome_options.add_experimental_option("detach", True) # type: ignore
     return webdriver.Chrome(options=chrome_options)
 
 def character_count(body:str) -> int:
@@ -68,7 +82,7 @@ def get_last_heading() -> str|None:
         
         return last_heading.strip()
 
-def get_contents(url:str, driver:webdriver.Chrome, last_heading:str|None=None) -> list[str]:
+def get_contents(url:str, driver:webdriver.Chrome, last_heading:str|None=None) -> list[Tag]:
     """
     Crawl all chapter headings from the contents page, 
     returns a list of <a> tags contain heading.
@@ -90,13 +104,13 @@ def get_contents(url:str, driver:webdriver.Chrome, last_heading:str|None=None) -
     """
     driver.get(url)
     soup = BeautifulSoup(driver.page_source,'html.parser')
+    
+    chapter_list = alter_find(soup.select_one, selector=".chapter-list")
+    target = alter_find(chapter_list.find, name="a", string=last_heading)
+    parent = alter_find(target.find_parent, name="li")
+    chapter_rest = alter_find(parent.find_next_siblings)
 
-    chapter_list = soup.select_one(".chapter-list")
-    target = chapter_list.find("a", string=last_heading) # idea to dismiss type check: if chapter_list is not None else "insert idea"
-    parent = target.find_parent("li")
-    chapter_rest = parent.find_next_siblings()
-        
-    return [tag.find("a") for tag in chapter_rest if tag.find("a") is not None]
+    return [alter_find(tag.find, name="a") for tag in chapter_rest if tag.find("a") is not None]
 
 def store_chapter(chapter:str) -> None:
     """
@@ -134,6 +148,8 @@ def crawl_novel_body(contents:dict[str, str], driver:webdriver.Chrome) -> list[t
         # add time interval between crawl to avoid bot detection
         time.sleep(1.1 + random.random() * 1.4)
         
+        content:str = ""
+        
         # crawl
         driver.get(link)
         soup = BeautifulSoup(driver.page_source,'html.parser')
@@ -144,7 +160,6 @@ def crawl_novel_body(contents:dict[str, str], driver:webdriver.Chrome) -> list[t
         if chars < 200:
             flags.append((heading, link))
         else:
-            content:str = ""
             content += HOR_RULE + "\n"
             content += heading + "\n"
             content += HOR_RULE + "\n\n"
@@ -180,7 +195,7 @@ def operation(url:str):
     # get all the <a> tag contain headings (title and link)
     element = get_contents(url, driver, last_heading)
     contents:dict[str, str] = {
-        ("https:" + tag.get("href")): tag.text
+        ("https:" + alter_find(tag.get, key="href")): tag.text
         for tag in element
     }
     
@@ -188,12 +203,12 @@ def operation(url:str):
     flags = crawl_novel_body(contents, driver)
     
     # close webdriver
-    driver.close()
+    driver.quit()
     
     if flags == []:
-        print("There's no chapter with character count less than 200 characters.")
+        print("There's no chapter having less than 200 characters.")
     else:
-        print(f"There's {len(flags)} chapter with character count less than 200 characters")
+        print(f"There's {len(flags)} chapter having less than 200 characters.")
         for flag in flags:
             print(*flag)
 
