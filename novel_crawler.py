@@ -106,9 +106,13 @@ def get_contents(url:str, driver:webdriver.Chrome, last_heading:str|None=None) -
     soup = BeautifulSoup(driver.page_source,'html.parser')
     
     chapter_list = alter_find(soup.select_one, selector=".chapter-list")
-    target = alter_find(chapter_list.find, name="a", string=last_heading)
-    parent = alter_find(target.find_parent, name="li")
-    chapter_rest = alter_find(parent.find_next_siblings)
+    
+    if last_heading is None:
+        chapter_rest = alter_find(chapter_list.find_all, name="a")
+    else:
+        target = alter_find(chapter_list.find, name="a", string=last_heading)
+        parent = alter_find(target.find_parent, name="li")
+        chapter_rest = alter_find(parent.find_next_siblings)
 
     return [alter_find(tag.find, name="a") for tag in chapter_rest if tag.find("a") is not None]
 
