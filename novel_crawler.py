@@ -32,13 +32,16 @@ with open(CRAWL_URL) as file:
 
 def alter_find(func:Callable[..., Any], *args:Any, **kwargs:Any) -> Any:
     result:Tag|None = func(*args, **kwargs)
-    print(f"calling: {func.__name__}, with args: {args}, {kwargs}")
     if result is None:
-        raise AttributeError(
-            f"The result of {func.__name__} is None, find target is {args[0] if type(args) == tuple else args}."
-            f"Other arguments are: {', '.join(args[1:])}"
-            f"Other keyword arguments are: {kwargs}"
-            )
+        message = f"The result of {func.__name__} is None."
+        
+        # empty sequences are considered false
+        # cite:　https://docs.python.org/3/library/stdtypes.html#truth-value-testing
+        message += f"\nAll arguments: {', '.join(
+            map(str, args)
+            )}." if args else "" 
+        message += f"\nAll keyword arguments: {kwargs}" if kwargs else ""
+        raise AttributeError(message)
     return result
 
 def setup_webdriver() -> webdriver.Chrome:
