@@ -44,11 +44,6 @@ def alter_find(func:Callable[..., Any], *args:Any, **kwargs:Any) -> Any:
         raise AttributeError(message)
     return result
 
-def setup_webdriver() -> webdriver.Chrome:
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_experimental_option("detach", True) # type: ignore
-    return webdriver.Chrome(options=chrome_options)
-
 def character_count(body:str) -> int:
     """
     Return the number of chinese characters in the text.
@@ -188,7 +183,7 @@ def operation(url:str=URL):
         Link to the novel website.
     """
     # setup driver
-    driver = setup_webdriver()
+    driver = webdriver.Chrome()
     
     # setup file to store text
     if not os.path.isfile(SAVE_FNAME):
@@ -208,9 +203,6 @@ def operation(url:str=URL):
     
     # crawl body on website
     flags = crawl_novel_body(contents, driver)
-    
-    # close webdriver
-    driver.quit()
     
     if flags == []:
         print("There's no chapter having less than 200 characters.")
