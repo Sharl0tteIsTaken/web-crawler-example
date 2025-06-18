@@ -178,13 +178,13 @@ def crawl_novel_body(contents:dict[str, str], driver:webdriver.Chrome) -> list[t
         store_chapter(content)
     return flags
 
-def operation(url:str):
+def operation(url:str=URL):
     """
     The whole operation to get chapters from website to local file.
 
     Parameters
     ----------
-    url: (str)
+    url: (str, optional, by default URL)
         Link to the novel website.
     """
     # setup driver
@@ -204,7 +204,7 @@ def operation(url:str):
     contents:dict[str, str] = {
         ("https:" + alter_find(tag.get, key="href")): tag.text
         for tag in element
-    }
+        }
     
     # crawl body on website
     flags = crawl_novel_body(contents, driver)
@@ -220,5 +220,5 @@ def operation(url:str):
             print(*flag)
 
 if __name__ == "__main__":
-    operation(URL)
+    operation()
     print("ended.")
