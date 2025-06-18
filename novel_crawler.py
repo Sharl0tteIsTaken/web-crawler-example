@@ -30,6 +30,10 @@ with open(CRAWL_URL) as file:
 #* Note: 
 # The contents page and all chapters are in their dedicated url.
 
+class NoResultFoundError(Exception):
+    """Raised when BeautifulSoup find-like function returns None"""
+    pass
+
 def alter_find(func:Callable[..., Any], *args:Any, **kwargs:Any) -> Any:
     result:Tag|None = func(*args, **kwargs)
     if result is None:
@@ -41,7 +45,7 @@ def alter_find(func:Callable[..., Any], *args:Any, **kwargs:Any) -> Any:
             map(str, args)
             )}." if args else "" 
         message += f"\nAll keyword arguments: {kwargs}" if kwargs else ""
-        raise AttributeError(message)
+        raise NoResultFoundError(message)
     return result
 
 def character_count(body:str) -> int:
