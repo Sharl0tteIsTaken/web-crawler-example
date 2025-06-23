@@ -35,7 +35,7 @@ class NoResultFoundError(Exception):
     pass
 
 def alter_find(func:Callable[..., Any], *args:Any, **kwargs:Any) -> Any:
-    result:Tag|None = func(*args, **kwargs)
+    result:Any|None = func(*args, **kwargs)
     if result is None:
         message = f"The result of {func.__name__} is None."
         
