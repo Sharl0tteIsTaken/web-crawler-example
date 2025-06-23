@@ -223,7 +223,7 @@ def crawl_novel_body(contents:dict[str, str], driver:webdriver.Chrome) -> list[t
         store_chapter(content)
     return flags
 
-def operation(url:str=URL):
+def operation(url:str=URL) -> None:
     """
     The whole operation to get chapters from website to local file.
 
