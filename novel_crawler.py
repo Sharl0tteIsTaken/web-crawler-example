@@ -31,7 +31,7 @@ with open(CRAWL_URL) as file:
 # The contents page and all chapters are in their dedicated url.
 
 class NoResultFoundError(Exception):
-    """Raised when BeautifulSoup find-like function returns None"""
+    """Raised when BeautifulSoup find-like function returns None."""
     pass
 
 def alter_find(func:Callable[..., Any], *args:Any, **kwargs:Any) -> Any:
