@@ -19,6 +19,9 @@ CRAWL_URL = DIR + "crawl_url.txt" # file contain only url to the contents of the
 with open(CRAWL_URL) as file:
     URL = file.read()
 
+# custom types
+type AttributeValue = str | list[str]
+
 
 #* Glossary: 
 # title: Name of the novel
@@ -35,6 +38,49 @@ class NoResultFoundError(Exception):
     pass
 
 def alter_find(func:Callable[..., Any], *args:Any, **kwargs:Any) -> Any:
+    """
+    A wrapper for BeautifulSoup find-like functions that helps avoid static type checker warnings.
+
+    All arguments and keyword arguments are passed through to the given function. 
+    If it returns `None`, `NoResultFoundError` is raised.
+
+    This is useful when working under `strict` type checking mode in tools like MyPy or Pyright.
+    
+    Parameters
+    ----------
+    func: (Callable[..., Any])
+        A find-like function from BeautifulSoup (e.g., ``find``, ``find_all``, etc).
+        This function will be called with other provided arguments and keyword arguments.
+
+    Returns
+    -------
+    Any
+        The result returned by the find-like function. 
+        Its return value can be of type ``bs4.Tag``, ``bs4.element.ResultSet``, 
+        or other types depending on the function used.
+
+    Raises
+    ------
+    NoResultFoundError
+        Raised when the find-like function returns ``None``. 
+        The exception includes the function name and the arguments passed to assist in debugging.
+
+    Examples
+    --------
+    - Using ``select_one()`` in HTML: 
+    
+        soup = BeautifulSoup()
+        selected:Tag = alter_find(soup.select_one, selector=".class")
+        
+    - Using ``find_all()`` on bs4.Tag: 
+    
+        a_tags:ResultSet = alter_find(tag.find_all, name="a")
+        
+    - Using ``get()`` on bs4.Tag: 
+    
+        href:AttributeValue = alter_find(tag.get, key="href")
+    
+    """
     result:Any|None = func(*args, **kwargs)
     if result is None:
         message = f"The result of {func.__name__} is None."
