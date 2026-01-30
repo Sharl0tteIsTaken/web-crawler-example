@@ -1,7 +1,7 @@
 """
 A script to crawl text from websites, primarily used on novel websites.
 """
-import os.path
+import os
 import random
 import re
 import time
@@ -11,8 +11,8 @@ from typing import Any
 from bs4 import BeautifulSoup, Tag
 from selenium import webdriver
 
-
-# general constant
+# ---------------------------------------------------------------------
+# General constant
 ENCODING = "UTF-8"
 HOR_RULE = "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
 PATN = r"[\u4E00-\u9FFF]"  # see: wikipedia.org/CJK_Unified_Ideographs
@@ -24,7 +24,7 @@ CRAWL_URL = DIR + "crawl_url.txt"
 with open(CRAWL_URL, encoding=ENCODING) as load_file:
     URL = load_file.read()
 
-# custom types
+# Custom types
 type AttributeValue = str | list[str]
 
 
@@ -48,25 +48,25 @@ def alter_find(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     static type checker warnings.
 
     All arguments and keyword arguments are passed through to the given
-    function. If it returns `None`, `NoResultFoundError` is raised.
+    function. If it returns ``None``, NoResultFoundError is raised.
 
-    This is useful when working under `strict` type checking mode in
+    This is useful when working under `strict` type checking mode with
     tools like MyPy or Pyright.
 
     Parameters
     ----------
-    func: (Callable[..., Any])
-        A find-like function from BeautifulSoup (example: ``find``,
-        ``find_all``, etc).
+    func: Callable[..., Any]
+        A find-like function from BeautifulSoup (example: :func:`find`,
+        :func:`find_all`, ...).
         This function will be called with other provided arguments and
         keyword arguments.
 
     Returns
     -------
     Any
-        The result returned by the find-like function. Its return value
-        can be of type ``bs4.Tag``, ``bs4.element.ResultSet``, or other
-        types depending on the function used.
+        The result returned by the find-like function. The type of value
+        can be :type:`bs4.Tag`, :type:`bs4.element.ResultSet`, or other
+        types, depending on the function used.
 
     Raises
     ------
@@ -77,18 +77,18 @@ def alter_find(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 
     Examples
     --------
-    - Using ``select_one()`` in HTML:
+    **Using :func:`select_one()` in HTML**
 
-        soup = BeautifulSoup()
-        selected:Tag = alter_find(soup.select_one, selector=".class")
+    >>> soup = BeautifulSoup()
+    >>> selected: Tag = alter_find(soup.select_one, selector=".class")
 
-    - Using ``find_all()`` on bs4.Tag:
+    **Using :func:`find_all()` on bs4.Tag**
 
-        a_tags:ResultSet = alter_find(tag.find_all, name="a")
+    >>> a_tags: ResultSet = alter_find(tag.find_all, name="a")
 
-    - Using ``get()`` on bs4.Tag:
+    **Using :func:`get()` on bs4.Tag**
 
-        href:AttributeValue = alter_find(tag.get, key="href")
+    >>> href: str | list[str] = alter_find(tag.get, key="href")
 
     """
     result: Any | None = func(*args, **kwargs)
@@ -105,11 +105,11 @@ def alter_find(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 
 def character_count(body: str) -> int:
     """
-    Return the number of chinese characters in the text.
+    Return the number of chinese characters in the :attr:`text`.
 
     Parameters
     ----------
-    text: (str)
+    text: str
         The text to count characters.
 
     Returns
@@ -122,8 +122,8 @@ def character_count(body: str) -> int:
 
 def get_last_heading() -> str | None:
     """
-    Return heading of the last chapter in the file,
-    the file is defined by ``FNAME``.
+    Return heading of the last chapter in the file, if there is content
+    in the file.
 
     Returns
     -------
@@ -145,24 +145,24 @@ def get_contents(
     url: str, driver: webdriver.Chrome, last_heading: str | None = None
 ) -> list[Tag]:
     """
-    Crawl all chapter headings from the contents page,
-    returns a list of <a> tags contain heading.
+    Crawl all chapter headings from the contents page, returns a list of
+    HTML `<a>` tags contain heading.
 
     Parameters
     ----------
-    url: (str)
+    url: str
         Link to the contents page.
-    driver: (webdriver.Chrome)
+    driver: webdriver.Chrome
         The chrome driver.
-    last_heading: (str | None, optional, by default None)
-        Last heading in the store file, if provided, return only the
+    last_heading: str | None, by default None
+        Last heading in the store file. If provided, return only the
         following headings (skip all previous headings including this
         one).
 
     Returns
     -------
     list[str]
-        A list of <a> tags contain chapter heading and url.
+        A list of `<a>` tags contain chapter heading and url.
     """
     driver.get(url)
     soup = BeautifulSoup(driver.page_source, 'html.parser')
@@ -189,7 +189,7 @@ def store_chapter(chapter: str) -> None:
 
     Parameters
     ----------
-    content: (str)
+    content: str
         The chapters to save.
     """
     with open(SAVE_FNAME, mode="a", encoding='UTF-8') as file:
@@ -200,14 +200,14 @@ def crawl_novel_body(
     contents: dict[str, str], driver: webdriver.Chrome
 ) -> list[tuple[str, str]]:
     """
-    Use link in `contents` to crawl the body from website.
+    Use link in :attr:`contents` to crawl the body from website.
 
     Parameters
     ----------
-    contents: (dict[str, str])
+    contents: dict[str, str]
         ``{chapter_link, chapter_title}``
         The link and title of all chapters to crawl.
-    driver: (webdriver.Chrome)
+    driver: webdriver.Chrome
         The chrome driver.
 
     Returns
@@ -230,7 +230,6 @@ def crawl_novel_body(
         body = soup.select(".content")[0].text
         chars = character_count(body)
 
-        # if the number of character in content is < 200, flag the page
         if chars < 200:
             flags.append((heading, link))
         else:
@@ -241,7 +240,6 @@ def crawl_novel_body(
 
         # show current progress
         print(f"\033[KWriting: {heading}", end="\r", flush=True)
-
         store_chapter(content)
     return flags
 
@@ -252,7 +250,7 @@ def operation(url: str = URL) -> None:
 
     Parameters
     ----------
-    url: (str, optional, by default URL)
+    url: str, optional, by default URL
         Link to the novel website.
     """
     # setup driver
