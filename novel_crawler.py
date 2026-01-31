@@ -6,40 +6,101 @@ import random
 import re
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+import requests
 from bs4 import BeautifulSoup, Tag
 from selenium import webdriver
+from selenium.webdriver.remote.webdriver import WebDriver
+
+# ---------------------------------------------------------------------
+# User input values
+URL = ""
+SAVE_FILE_PATH = Path("")
+
 
 # ---------------------------------------------------------------------
 # General constant
+DEFAULT_FNAME = "store_content.txt"
 ENCODING = "UTF-8"
-HOR_RULE = "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-PATN = r"[\u4E00-\u9FFF]"  # see: wikipedia.org/CJK_Unified_Ideographs
+HOR_RULE = "~" * 30
+MIN_CHARS = 200
+ZH_CHARS = r"[\u4E00-\u9FFF]"  # see: wikipedia.org/CJK_Unified_Ideographs
 
-# directory related constant
-DIR = "novel_crawler/"
-SAVE_FNAME = DIR + "store_content.txt"
-CRAWL_URL = DIR + "crawl_url.txt"
-with open(CRAWL_URL, encoding=ENCODING) as load_file:
-    URL = load_file.read()
+# Glossary
+# Title: Name of the novel.
+# Contents: List of headings in the novel.
+# Chapter: Heading and body of a section in the novel.
+# Heading: Name of the chapter.
+# Body: Text of the chapter.
 
 # Custom types
-type AttributeValue = str | list[str]
+type Chapter = str
+type ChapterLink = str
+type Heading = str
 
 
-# *Glossary*:
-# title: Name of the novel
-# contents: List of chapter titles in the novel
-# chapter: Title and text of chapter
-# heading: Title of chapter
-# body: Text of chapter
+# ---------------------------------------------------------------------
 
-# *Note*:
-# The contents page and all chapters are in their dedicated url.
 
-class NoResultFoundError(Exception):
+class ResultNotFoundError(Exception):
     """Raised when BeautifulSoup find-like function returns None."""
+
+
+def check_url(url: str) -> None:
+    """
+    Check if url exist and is responding.
+
+    Parameters
+    ----------
+    url : str
+        The url to check.
+    """
+    assert url, "Please enter URL to the novel website."
+    response = requests.get(url=url, timeout=10)
+    response.raise_for_status()
+
+
+def sanitize_file_path(file_path: Path) -> Path:
+    """
+    Ensure the file path contains a file and is writable.
+
+    Parameters
+    ----------
+    file_path : Path
+        The file path to check.
+
+    Raises
+    ------
+    FileNotFoundError
+        Raised if the file in file path doesn't exist.
+    PermissionError
+        Raised if doesn't have access right to the file.
+
+    Returns
+    -------
+    Path
+        The sanitized file path.
+    """
+    if file_path.is_dir():
+        file_path = file_path / DEFAULT_FNAME
+        print(
+            "The entered path doesn't specify a file, the contents are stored "
+            f"in the `{DEFAULT_FNAME}` within that folder."
+            )
+
+    try:
+        os.access(file_path, os.W_OK)
+    except FileNotFoundError:
+        print(
+            "Please enter a valid path with file name to load from or safe to."
+            f"\nEntered path: `{file_path}`."
+            )
+    except PermissionError:
+        print(f"You don't have permission on`{file_path}`.")
+
+    return file_path
 
 
 def alter_find(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -70,7 +131,7 @@ def alter_find(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 
     Raises
     ------
-    NoResultFoundError
+    ResultNotFoundError
         Raised when the find-like function returns ``None``.
         The exception includes the function name and the arguments
         passed to assist in debugging.
@@ -93,17 +154,17 @@ def alter_find(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """
     result: Any | None = func(*args, **kwargs)
     if result is None:
-        message = f"The result of {func.__name__} is None."
+        arguments = [str(arg) for arg in args]
 
-        message += f"\nAll arguments: {', '.join(
-            map(str, args)
-            )}." if args else ""
+        message = f"The result of {func.__name__} is None.\n"
+        message += f"All arguments: {', '.join(arguments)}." if args else ""
         message += f"\nAll keyword arguments: {kwargs}" if kwargs else ""
-        raise NoResultFoundError(message)
+
+        raise ResultNotFoundError(message)
     return result
 
 
-def character_count(body: str) -> int:
+def zh_char_count(text: str) -> int:
     """
     Return the number of chinese characters in the :attr:`text`.
 
@@ -117,20 +178,25 @@ def character_count(body: str) -> int:
     int
         Number of characters in the text.
     """
-    return len(re.findall(PATN, body))
+    return len(re.findall(ZH_CHARS, text))
 
 
-def get_last_heading() -> str | None:
+def get_last_heading(file_name: Path) -> str | None:
     """
     Return heading of the last chapter in the file, if there is content
     in the file.
+
+    Parameters
+    ----------
+    file_name: Path
+        The path to the safe file.
 
     Returns
     -------
     str | None
         The heading of last chapter.
     """
-    with open(SAVE_FNAME, mode="r", encoding='UTF-8') as file:
+    with open(file_name, mode="r", encoding='UTF-8') as file:
         content = file.read()
         if content == "":
             return None
@@ -141,18 +207,18 @@ def get_last_heading() -> str | None:
         return last_heading.strip()
 
 
-def get_contents(
-    url: str, driver: webdriver.Chrome, last_heading: str | None = None
+def get_headings(
+    url: str, driver: WebDriver, last_heading: str | None = None
 ) -> list[Tag]:
     """
     Crawl all chapter headings from the contents page, returns a list of
-    HTML `<a>` tags contain heading.
+    HTML `<a>` tags contain headings.
 
     Parameters
     ----------
     url: str
         Link to the contents page.
-    driver: webdriver.Chrome
+    driver: WebDriver
         The chrome driver.
     last_heading: str | None, by default None
         Last heading in the store file. If provided, return only the
@@ -161,7 +227,7 @@ def get_contents(
 
     Returns
     -------
-    list[str]
+    list[Tag]
         A list of `<a>` tags contain chapter heading and url.
     """
     driver.get(url)
@@ -183,97 +249,91 @@ def get_contents(
         ]
 
 
-def store_chapter(chapter: str) -> None:
-    """
-    Store (append) chapters to save file.
-
-    Parameters
-    ----------
-    content: str
-        The chapters to save.
-    """
-    with open(SAVE_FNAME, mode="a", encoding='UTF-8') as file:
-        file.write(chapter)
-
-
 def crawl_novel_body(
-    contents: dict[str, str], driver: webdriver.Chrome
-) -> list[tuple[str, str]]:
+    contents: dict[ChapterLink, Heading], driver: WebDriver
+) -> tuple[list[Chapter], list[tuple[Heading, ChapterLink]]]:
     """
     Use link in :attr:`contents` to crawl the body from website.
 
     Parameters
     ----------
-    contents: dict[str, str]
-        ``{chapter_link, chapter_title}``
+    contents: dict[ChapterLink, Heading]
         The link and title of all chapters to crawl.
-    driver: webdriver.Chrome
+    driver: WebDriver
         The chrome driver.
 
     Returns
     -------
-    list[tuple[str, str]]
-        ``[(chapter_title, chapter_link)]``
-        The title and link of all chapters where body has fewer characters.
+    tuple[list[Chapter], list[tuple[Heading, ChapterLink]]]
+        List of crawled chapters.
+        The title and link of chapters where body has fewer characters
+        then expected.
     """
     flags: list[tuple[str, str]] = []
 
+    chapters: list[str] = []
     for link, heading in contents.items():
-        # add time interval between crawl to avoid bot detection
         time.sleep(1.1 + random.random() * 1.4)
 
-        content: str = ""
+        chapter: str = ""
 
-        # crawl
         driver.get(link)
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         body = soup.select(".content")[0].text
-        chars = character_count(body)
+        chars = zh_char_count(body)
 
-        if chars < 200:
+        if chars < MIN_CHARS:
             flags.append((heading, link))
         else:
-            content += HOR_RULE + "\n"
-            content += heading + "\n"
-            content += HOR_RULE + "\n\n"
-            content += body + "\n\n\n"
+            chapter += HOR_RULE + "\n"
+            chapter += heading + "\n"
+            chapter += HOR_RULE + "\n\n"
+            chapter += body + "\n\n\n"
 
         # show current progress
         print(f"\033[KWriting: {heading}", end="\r", flush=True)
-        store_chapter(content)
-    return flags
+        chapters.append(chapter)
+    return chapters, flags
 
 
-def operation(url: str = URL) -> None:
+def store_chapters(chapters: list[str], file_path: Path) -> None:
     """
-    The whole operation to get chapters from website to local file.
+    Store (append) chapters to file.
+
+    Parameters
+    ----------
+    chapters: list[str]
+        The chapters to save.
+    file_path: Path
+        The path of file to store chapters.
+    """
+    for chapter in chapters:
+        with open(file_path, mode="a+", encoding='UTF-8') as save_file:
+            save_file.write(chapter)
+
+
+def operation(url: str) -> None:
+    """
+    The whole process to get chapters from website to local file.
 
     Parameters
     ----------
     url: str, optional, by default URL
         Link to the novel website.
     """
-    # setup driver
     driver = webdriver.Chrome()
 
-    # setup file to store text
-    if not os.path.isfile(SAVE_FNAME):
-        with open(SAVE_FNAME, mode="w", encoding=ENCODING) as file:
-            file.write("")
-
-    # get last heading in file
-    last_heading = get_last_heading()
+    last_heading = get_last_heading(SAVE_FILE_PATH)
     print(f"last heading exist: {last_heading}")
 
-    # get all the <a> tag contain headings (title and link)
-    element = get_contents(url, driver, last_heading)
+    element = get_headings(url, driver, last_heading)
     contents: dict[str, str] = {
         ("https:" + alter_find(tag.get, key="href")): tag.text
         for tag in element
         }
 
-    # crawl body on website
-    flags = crawl_novel_body(contents, driver)
+    chapters, flags = crawl_novel_body(contents, driver)
+    store_chapters(chapters, SAVE_FILE_PATH)
 
     if not flags:
         print("There's no chapter having less than 200 characters.")
@@ -284,5 +344,7 @@ def operation(url: str = URL) -> None:
 
 
 if __name__ == "__main__":
-    operation()
-    print("ended.")
+    check_url(URL)
+    sanitize_file_path(SAVE_FILE_PATH)
+    operation(URL)
+    print("Script ended.")
