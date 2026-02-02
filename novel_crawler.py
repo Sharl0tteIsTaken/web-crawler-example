@@ -28,6 +28,11 @@ HOR_RULE = "~" * 30
 MIN_CHARS = 200
 ZH_CHARS = r"[\u4E00-\u9FFF]"  # see: wikipedia.org/CJK_Unified_Ideographs
 
+# Time constant
+TIME_BASE = 2  # minimum wait time between each crawl
+TIME_BONUS = 1.5  # bonus wait time between each crawl
+WAIT_TIME = 10  # wait time before request timeout
+
 # Glossary
 # Title: Name of the novel.
 # Contents: List of headings in the novel.
@@ -39,7 +44,6 @@ ZH_CHARS = r"[\u4E00-\u9FFF]"  # see: wikipedia.org/CJK_Unified_Ideographs
 type Chapter = str
 type ChapterLink = str
 type Heading = str
-
 
 # ---------------------------------------------------------------------
 
@@ -54,12 +58,22 @@ def check_url(url: str) -> None:
 
     Parameters
     ----------
-    url : str
+    url: str
         The url to check.
     """
     assert url, "Please enter URL to the novel website."
-    response = requests.get(url=url, timeout=10)
-    response.raise_for_status()
+    response = requests.get(url=url, timeout=WAIT_TIME)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        print(
+            "\nPackage requests raised an HTTPError, this doesn't necessarily "
+            "means that the website is down or manual input is required. "
+            "If the HTTP error code is 403, it is more likely that requests "
+            "is being caught as a bot, wait to see if the Selenium driver is "
+            "also unable to function first.\n"
+            f"HTTP error code: {error}"
+            )
 
 
 def sanitize_file_path(file_path: Path) -> Path:
@@ -68,7 +82,7 @@ def sanitize_file_path(file_path: Path) -> Path:
 
     Parameters
     ----------
-    file_path : Path
+    file_path: Path
         The file path to check.
 
     Raises
@@ -86,9 +100,13 @@ def sanitize_file_path(file_path: Path) -> Path:
     if file_path.is_dir():
         file_path = file_path / DEFAULT_FNAME
         print(
-            "The entered path doesn't specify a file, the contents are stored "
-            f"in the `{DEFAULT_FNAME}` within that folder."
+            "\nThe entered path doesn't specify a file, the contents are "
+            f"stored in the `{DEFAULT_FNAME}` within that folder."
             )
+
+    if not file_path.is_file():
+        with open(file_path, mode="w", encoding=ENCODING) as file:
+            file.write("")
 
     try:
         os.access(file_path, os.W_OK)
@@ -181,14 +199,14 @@ def zh_char_count(text: str) -> int:
     return len(re.findall(ZH_CHARS, text))
 
 
-def get_last_heading(file_name: Path) -> str | None:
+def get_last_heading(file_path: Path) -> str | None:
     """
     Return heading of the last chapter in the file, if there is content
     in the file.
 
     Parameters
     ----------
-    file_name: Path
+    file_path: Path
         The path to the safe file.
 
     Returns
@@ -196,7 +214,7 @@ def get_last_heading(file_name: Path) -> str | None:
     str | None
         The heading of last chapter.
     """
-    with open(file_name, mode="r", encoding='UTF-8') as file:
+    with open(file_path, mode="r", encoding=ENCODING) as file:
         content = file.read()
         if content == "":
             return None
@@ -242,11 +260,7 @@ def get_headings(
         parent = alter_find(target.find_parent, name="li")
         chapter_rest = alter_find(parent.find_next_siblings)
 
-    return [
-        alter_find(tag.find, name="a")
-        for tag in chapter_rest
-        if tag.find("a") is not None
-        ]
+    return [tag for tag in chapter_rest if tag.attrs.get("href") is not None]
 
 
 def crawl_novel_body(
@@ -273,7 +287,7 @@ def crawl_novel_body(
 
     chapters: list[str] = []
     for link, heading in contents.items():
-        time.sleep(1.1 + random.random() * 1.4)
+        time.sleep(TIME_BASE + TIME_BONUS * random.random())
 
         chapter: str = ""
 
@@ -293,6 +307,7 @@ def crawl_novel_body(
         # show current progress
         print(f"\033[KWriting: {heading}", end="\r", flush=True)
         chapters.append(chapter)
+    print("\n" * 3)  # escape print flush
     return chapters, flags
 
 
@@ -308,11 +323,11 @@ def store_chapters(chapters: list[str], file_path: Path) -> None:
         The path of file to store chapters.
     """
     for chapter in chapters:
-        with open(file_path, mode="a+", encoding='UTF-8') as save_file:
+        with open(file_path, mode="a", encoding=ENCODING) as save_file:
             save_file.write(chapter)
 
 
-def operation(url: str) -> None:
+def operation(url: str, file_path: Path) -> None:
     """
     The whole process to get chapters from website to local file.
 
@@ -320,20 +335,21 @@ def operation(url: str) -> None:
     ----------
     url: str, optional, by default URL
         Link to the novel website.
+    file_path: Path
+        The file path to read from and store to.
     """
     driver = webdriver.Chrome()
 
-    last_heading = get_last_heading(SAVE_FILE_PATH)
-    print(f"last heading exist: {last_heading}")
-
+    last_heading = get_last_heading(file_path)
     element = get_headings(url, driver, last_heading)
+
     contents: dict[str, str] = {
-        ("https:" + alter_find(tag.get, key="href")): tag.text
+        ("https:" + str(tag.attrs.get("href"))): tag.text
         for tag in element
         }
 
     chapters, flags = crawl_novel_body(contents, driver)
-    store_chapters(chapters, SAVE_FILE_PATH)
+    store_chapters(chapters, file_path)
 
     if not flags:
         print("There's no chapter having less than 200 characters.")
@@ -345,6 +361,6 @@ def operation(url: str) -> None:
 
 if __name__ == "__main__":
     check_url(URL)
-    sanitize_file_path(SAVE_FILE_PATH)
-    operation(URL)
+    fpath = sanitize_file_path(SAVE_FILE_PATH)
+    operation(URL, fpath)
     print("Script ended.")
